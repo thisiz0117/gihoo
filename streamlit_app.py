@@ -7,35 +7,10 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import datetime
 import pandas as pd
-
-# --- Matplotlib 한글 폰트 설정 ---
-# Pretendard 폰트 강제 지정 대신 시스템의 기본 폰트를 사용합니다.
-# 만약 한글이 깨진다면, 시스템에 맞는 한글 폰트를 직접 지정해야 할 수 있습니다.
 from matplotlib import rcParams
-import platform
+from matplotlib.colors import TwoSlopeNorm
 
-if platform.system() == 'Windows':
-    font_name = 'Malgun Gothic'
-elif platform.system() == 'Darwin': # macOS
-    font_name = 'AppleGothic'
-else: # Linux
-    # 시스템에 나눔고딕이 설치되어 있는지 확인 후 사용합니다.
-    # 설치되어 있지 않다면 다른 폰트를 지정하거나, 기본 폰트를 사용하게 됩니다.
-    try:
-        import matplotlib.font_manager as fm
-        if 'NanumGothic' in [f.name for f in fm.fontManager.ttflist]:
-            font_name = 'NanumGothic'
-        else:
-            # 나눔고딕이 없을 경우 경고 메시지를 표시하고 기본값으로 둡니다.
-            st.warning("나눔고딕 폰트가 설치되어 있지 않아 한글이 깨질 수 있습니다. 'sudo apt-get install fonts-nanum*' 명령어로 설치할 수 있습니다.")
-            pass # font_name을 설정하지 않음
-    except ImportError:
-        pass # matplotlib.font_manager를 사용할 수 없는 경우
-
-# font_name이 성공적으로 설정된 경우에만 rcParams를 변경합니다.
-if 'font_name' in locals():
-    rcParams['font.family'] = font_name
-
+# 마이너스 부호가 깨지는 것을 방지하는 설정만 남겨둡니다.
 rcParams['axes.unicode_minus'] = False
 
 
@@ -84,7 +59,6 @@ def load_and_slice_data(selected_date: datetime.date):
 def load_climatology_data(selected_date: datetime.date):
     """
     선택한 날짜(MM-DD)에 해당하는 30년(1991-2020) 평균 데이터를 계산하여 로드.
-    2월 29일은 포함하지 않음.
     """
     climatology_period = range(1991, 2021)
     
@@ -101,10 +75,10 @@ def load_climatology_data(selected_date: datetime.date):
             continue
             
         date_in_year = target_day.replace(year=year)
-        with st.spinner(f"{year}년 {target_day.month}월 {target_day.day}일 데이터 로드 중..."):
-            daily_data = load_and_slice_data(date_in_year)
-            if daily_data is not None:
-                daily_data_list.append(daily_data)
+        # 평년값 계산 중에는 스피너를 숨기기 위해 show_spinner=False 처리된 함수를 직접 호출
+        daily_data = load_and_slice_data(date_in_year)
+        if daily_data is not None:
+            daily_data_list.append(daily_data)
     
     if not daily_data_list:
         return None
@@ -116,7 +90,6 @@ def load_climatology_data(selected_date: datetime.date):
 
 # --- 지도 시각화 함수 ---
 def create_map_figure(data_array, selected_date):
-    from matplotlib.colors import TwoSlopeNorm
     if data_array is None or getattr(data_array, "size", 0) == 0:
         return None
 
@@ -147,15 +120,14 @@ def create_map_figure(data_array, selected_date):
     gl.right_labels = False
 
     cbar = fig.colorbar(im, ax=ax, orientation="vertical", pad=0.05, aspect=40)
-    cbar.set_label("해수면 온도 (°C)")
-    ax.set_title(f"해수면 온도: {selected_date.strftime('%Y년 %m월 %d일')}", fontsize=16)
+    cbar.set_label("Sea Surface Temperature (C)")
+    ax.set_title(f"SST: {selected_date.strftime('%Y-%m-%d')}", fontsize=16)
 
     fig.tight_layout()
     return fig
 
 # --- 평년 편차 지도 시각화 함수 ---
 def create_anomaly_map_figure(data_array, selected_date):
-    from matplotlib.colors import TwoSlopeNorm
     if data_array is None or getattr(data_array, "size", 0) == 0:
         return None
 
@@ -185,8 +157,8 @@ def create_anomaly_map_figure(data_array, selected_date):
     gl.right_labels = False
 
     cbar = fig.colorbar(im, ax=ax, orientation="vertical", pad=0.05, aspect=40)
-    cbar.set_label("평년 대비 온도 편차 (°C)")
-    ax.set_title(f"해수면 온도 편차: {selected_date.strftime('%Y년 %m월 %d일')}\n(1991-2020년 평균 대비)", fontsize=16)
+    cbar.set_label("SST Anomaly (C)")
+    ax.set_title(f"SST Anomaly: {selected_date.strftime('%Y-%m-%d')}\n(vs. 1991-2020 Climatology)", fontsize=16)
 
     fig.tight_layout()
     return fig
@@ -204,11 +176,10 @@ selected_date = st.sidebar.date_input(
 
 # --- 메인 로직 ---
 if selected_date:
-    with st.spinner(f"{selected_date:%Y-%m-%d} 데이터를 불러오는 중..."):
-        sst_data = load_and_slice_data(selected_date)
+    sst_data = load_and_slice_data(selected_date)
 
     if sst_data is not None and sst_data.size > 0:
-        with st.spinner(f"{selected_date:%m월 %d일}의 평년(1991-2020) 데이터를 계산하는 중... (최초 실행 시 몇 분 소요될 수 있습니다)"):
+        with st.spinner("Calculating 1991-2020 climatology... (This may take a few minutes on first run)"):
             climatology_data = load_climatology_data(selected_date)
 
         if climatology_data is not None:
@@ -216,28 +187,29 @@ if selected_date:
         else:
             anomaly_data = None
 
-        tab1, tab2 = st.tabs(["🌡️ 오늘의 해수면 온도", "📊 평년 편차 (Anomaly)"])
+        tab1, tab2 = st.tabs(["Today's SST", "SST Anomaly"])
 
         with tab1:
-            st.subheader(f"{selected_date:%Y년 %m월 %d일} 해수면 온도 지도")
+            st.subheader(f"Sea Surface Temperature Map: {selected_date:%Y-%m-%d}")
             fig_sst = create_map_figure(sst_data, selected_date)
             if fig_sst:
                 st.pyplot(fig_sst, clear_figure=True)
-            with st.expander("데이터 미리보기"):
+            with st.expander("Data Preview"):
                 st.write(sst_data)
 
         with tab2:
-            st.subheader(f"{selected_date:%Y년 %m월 %d일} 해수면 온도 평년 편차 지도")
+            st.subheader(f"SST Anomaly Map: {selected_date:%Y-%m-%d}")
             if anomaly_data is not None:
                 fig_anomaly = create_anomaly_map_figure(anomaly_data, selected_date)
                 if fig_anomaly:
                     st.pyplot(fig_anomaly, clear_figure=True)
-                with st.expander("편차 데이터 미리보기"):
+                with st.expander("Anomaly Data Preview"):
                     st.write(anomaly_data)
             else:
-                st.warning("평년 편차 데이터를 계산할 수 없습니다.")
+                st.warning("Could not calculate anomaly data.")
     
     elif sst_data is not None:
-        st.warning("선택하신 날짜에 해당하는 데이터가 없습니다. 다른 날짜를 선택해 주세요.")
+        st.warning("No data available for the selected date. Please choose another date.")
     else:
+        st.info("Loading data... If this message persists, there might be a connection issue.")
         st.stop()

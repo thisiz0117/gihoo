@@ -8,30 +8,35 @@ import cartopy.feature as cfeature
 import datetime
 import pandas as pd
 
-# --- Pretendard-Bold.ttf 폰트 강제 등록 ---
-import matplotlib
-from matplotlib import font_manager as fm, rcParams
-from pathlib import Path
-from matplotlib.colors import TwoSlopeNorm
+# --- Matplotlib 한글 폰트 설정 ---
+# Pretendard 폰트 강제 지정 대신 시스템의 기본 폰트를 사용합니다.
+# 만약 한글이 깨진다면, 시스템에 맞는 한글 폰트를 직접 지정해야 할 수 있습니다.
+from matplotlib import rcParams
+import platform
 
-def force_pretendard_font():
-    """
-    앱 폴더 fonts/Pretendard-Bold.ttf 를 강제로 등록해 한글 표시를 보장
-    """
-    font_path = Path(__file__).parent / "fonts" / "Pretendard-Bold.ttf"
-    if font_path.exists():
-        fm.fontManager.addfont(str(font_path))
-        font_name = fm.FontProperties(fname=str(font_path)).get_name()
-        rcParams["font.family"] = font_name
-        rcParams["axes.unicode_minus"] = False
-        return True
-    else:
-        # 폰트 파일이 없는 경우를 대비한 대체 설정
-        st.warning("Pretendard 폰트 파일이 'fonts' 폴더에 없습니다. 한글이 깨질 수 있습니다.")
-        rcParams["axes.unicode_minus"] = False
-        return False
+if platform.system() == 'Windows':
+    font_name = 'Malgun Gothic'
+elif platform.system() == 'Darwin': # macOS
+    font_name = 'AppleGothic'
+else: # Linux
+    # 시스템에 나눔고딕이 설치되어 있는지 확인 후 사용합니다.
+    # 설치되어 있지 않다면 다른 폰트를 지정하거나, 기본 폰트를 사용하게 됩니다.
+    try:
+        import matplotlib.font_manager as fm
+        if 'NanumGothic' in [f.name for f in fm.fontManager.ttflist]:
+            font_name = 'NanumGothic'
+        else:
+            # 나눔고딕이 없을 경우 경고 메시지를 표시하고 기본값으로 둡니다.
+            st.warning("나눔고딕 폰트가 설치되어 있지 않아 한글이 깨질 수 있습니다. 'sudo apt-get install fonts-nanum*' 명령어로 설치할 수 있습니다.")
+            pass # font_name을 설정하지 않음
+    except ImportError:
+        pass # matplotlib.font_manager를 사용할 수 없는 경우
 
-HAS_KR_FONT = force_pretendard_font()
+# font_name이 성공적으로 설정된 경우에만 rcParams를 변경합니다.
+if 'font_name' in locals():
+    rcParams['font.family'] = font_name
+
+rcParams['axes.unicode_minus'] = False
 
 
 # --- Streamlit 기본 설정 ---
@@ -74,7 +79,7 @@ def load_and_slice_data(selected_date: datetime.date):
         st.info("연도별 파일만 제공됩니다. 네트워크(방화벽/SSL) 또는 엔진(pydap, netCDF4) 설치 문제일 수 있어요.")
         return None
 
-# --- ✨ [아이디어 1] 평년값 계산 함수 ---
+# --- 평년값 계산 함수 ---
 @st.cache_data(show_spinner=False)
 def load_climatology_data(selected_date: datetime.date):
     """
@@ -83,7 +88,6 @@ def load_climatology_data(selected_date: datetime.date):
     """
     climatology_period = range(1991, 2021)
     
-    # 2월 29일 처리
     if selected_date.month == 2 and selected_date.day == 29:
         st.warning("2월 29일의 평년값은 제공되지 않습니다. 2월 28일 데이터를 기준으로 표시합니다.")
         target_day = selected_date.replace(day=28)
@@ -93,7 +97,6 @@ def load_climatology_data(selected_date: datetime.date):
     daily_data_list = []
     
     for year in climatology_period:
-        # 윤년의 2월 29일은 건너뜀
         if not pd.to_datetime(f"{year}-01-01").is_leap_year and target_day.month == 2 and target_day.day == 29:
             continue
             
@@ -106,7 +109,6 @@ def load_climatology_data(selected_date: datetime.date):
     if not daily_data_list:
         return None
         
-    # 모든 연도의 데이터를 하나로 합친 후 시간 축에 대해 평균 계산
     climatology = xr.concat(daily_data_list, dim="time").mean(dim="time")
     climatology.load()
     return climatology
@@ -114,6 +116,7 @@ def load_climatology_data(selected_date: datetime.date):
 
 # --- 지도 시각화 함수 ---
 def create_map_figure(data_array, selected_date):
+    from matplotlib.colors import TwoSlopeNorm
     if data_array is None or getattr(data_array, "size", 0) == 0:
         return None
 
@@ -122,7 +125,6 @@ def create_map_figure(data_array, selected_date):
         subplot_kw={"projection": ccrs.PlateCarree()}
     )
     
-    # 동적인 컬러맵 범위 설정 (데이터의 최소/최대값을 기준으로)
     vmin = np.nanpercentile(data_array.values, 5)
     vmax = np.nanpercentile(data_array.values, 95)
 
@@ -151,8 +153,9 @@ def create_map_figure(data_array, selected_date):
     fig.tight_layout()
     return fig
 
-# --- ✨ [아이디어 1] 평년 편차 지도 시각화 함수 ---
+# --- 평년 편차 지도 시각화 함수 ---
 def create_anomaly_map_figure(data_array, selected_date):
+    from matplotlib.colors import TwoSlopeNorm
     if data_array is None or getattr(data_array, "size", 0) == 0:
         return None
 
@@ -161,7 +164,6 @@ def create_anomaly_map_figure(data_array, selected_date):
         subplot_kw={"projection": ccrs.PlateCarree()}
     )
 
-    # 0을 중심으로 대칭적인 컬러맵 범위 설정
     max_abs_val = np.nanmax(np.abs(data_array.values))
     norm = TwoSlopeNorm(vcenter=0, vmin=-max_abs_val, vmax=max_abs_val)
 
@@ -170,7 +172,7 @@ def create_anomaly_map_figure(data_array, selected_date):
         x="lon",
         y="lat",
         transform=ccrs.PlateCarree(),
-        cmap="coolwarm",  # 0을 기준으로 색이 나뉘는 컬러맵
+        cmap="coolwarm",
         norm=norm,
         add_colorbar=False
     )
@@ -192,7 +194,6 @@ def create_anomaly_map_figure(data_array, selected_date):
 
 # --- 사이드바 UI ---
 st.sidebar.header("날짜 선택")
-# 최신 데이터 지연을 고려해 2일 전을 기본값으로 설정
 default_date = datetime.date.today() - datetime.timedelta(days=3)
 selected_date = st.sidebar.date_input(
     "보고 싶은 날짜를 선택하세요",
@@ -207,17 +208,14 @@ if selected_date:
         sst_data = load_and_slice_data(selected_date)
 
     if sst_data is not None and sst_data.size > 0:
-        # 평년값 데이터 로드
         with st.spinner(f"{selected_date:%m월 %d일}의 평년(1991-2020) 데이터를 계산하는 중... (최초 실행 시 몇 분 소요될 수 있습니다)"):
             climatology_data = load_climatology_data(selected_date)
 
-        # ✨ [아이디어 1] 평년 편차 계산
         if climatology_data is not None:
             anomaly_data = sst_data - climatology_data
         else:
             anomaly_data = None
 
-        # 탭을 사용하여 두 종류의 지도 표시
         tab1, tab2 = st.tabs(["🌡️ 오늘의 해수면 온도", "📊 평년 편차 (Anomaly)"])
 
         with tab1:
